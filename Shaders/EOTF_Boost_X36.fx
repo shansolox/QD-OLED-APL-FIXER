@@ -202,7 +202,7 @@ uniform float HighAPLMetricMinNits <
     ui_category_closed = true;
     ui_label = "High APL Metric Min (nits)";
     UI_TOOLTIP("Per-pixel lower bound for the High APL % metric. Pixels at or below this level contribute 0.0 to the metric. Used only when Enable High APL Adaptive Boost is enabled.")
-> = 500.0;
+> = 400.0;
 
 uniform float HighAPLMetricMaxNits <
     ui_type = "slider";
@@ -252,7 +252,7 @@ uniform float BoostRollOffShape <
     ui_min = 0.25; ui_max = 4.0; ui_step = 0.01;
     ui_label = "Boost Roll-Off Shape";
     UI_TOOLTIP("Adjusts the live roll off character by moving the roll off start together with the shoulder curvature so the transition stays smooth and monotonic. 1.0 = standard BT.2390. Values below 1.0 start later and hold highlights higher longer. Values above 1.0 start earlier and compress highlights harder.")
-> = 1.25;
+> = 1.5;
 
 
 static const float PixelParticipationStartNits = 1.0;
@@ -374,6 +374,23 @@ texture TexAPL
 sampler SamplerAPL
 {
     Texture = TexAPL;
+};
+
+// Scene-uniform boost/rolloff parameters precomputed after APL smoothing.
+// RGBA layout:
+//   .r = full-participation scene gain exp2(sceneLogGain)
+//   .g = BT.2390 PQ range; <= 0 means rolloff inactive
+//   .b = BT.2390 shaped knee start in normalized PQ range
+//   .a = BT.2390 compression span in normalized PQ range
+texture TexBoostParams
+{
+    Width = 1;
+    Height = 1;
+    Format = RGBA32F;
+};
+sampler SamplerBoostParams
+{
+    Texture = TexBoostParams;
 };
 
 texture TexAPLInstant
@@ -542,7 +559,7 @@ float LinearToPQBT2100(float linearValue)
 }
 
 // float3 overload — encodes all three channels in one pair of vector pow calls instead of
-// three pairs of scalar calls.  Used by ApplyBoostPreserveColorFromSceneLogGain to re-encode
+// three pairs of scalar calls.  Used by ApplyBoostPreserveColorFromPrecomputedParams to re-encode
 // the boosted PQ output without serialising the per-channel work.
 float3 LinearToPQBT2100(float3 v)
 {
@@ -657,11 +674,6 @@ float ApplyBT2390EETFToPQWithShape(float inputPQ, float sourcePeakNits, float ta
     return saturate(e2 * pqRange + sourceBlackPQ);
 }
 
-float ApplyBT2390EETFToPQ(float inputPQ, float sourcePeakNits, float targetPeakNits)
-{
-    return ApplyBT2390EETFToPQWithShape(inputPQ, sourcePeakNits, targetPeakNits, 1.0);
-}
-
 float ApplyBT2390EETFToNitsWithShape(float inputNits, float sourcePeakNits, float targetPeakNits, float shapeExponent)
 {
     float safeInputNits = max(inputNits, 0.0);
@@ -674,11 +686,6 @@ float ApplyBT2390EETFToNits(float inputNits, float sourcePeakNits, float targetP
     return ApplyBT2390EETFToNitsWithShape(inputNits, sourcePeakNits, targetPeakNits, 1.0);
 }
 
-float GetSignalLuma(float3 color)
-{
-    return (APLInputMode == 1) ? GetLuma2020(color) : GetLuma709(color);
-}
-
 float GetSceneNitsFromColor(float3 color)
 {
     if (APLInputMode == 1)
@@ -688,11 +695,6 @@ float GetSceneNitsFromColor(float3 color)
     }
 
     return GetLuma709(max(color, 0.0.xxx)) * SIGNAL_REFERENCE_NITS;
-}
-
-float GetAPLMetricSample(float3 color)
-{
-    return saturate(GetSceneNitsFromColor(color) / max(APLReferenceWhiteNits, 1.0));
 }
 
 float GetDigit(int digit, float2 uv)
@@ -844,11 +846,6 @@ float LookupPerAPLBoostStrength(float aplPct)
 }
 
 // LUT shapes the scene-compensation weight only. Final response is a nits-domain gain.
-float MeasuredCompToBoostT(float comp)
-{
-    return saturate((comp - COMP_MIN) / max(COMP_MAX - COMP_MIN, 1e-6));
-}
-
 float ComputeAPLBoostFader(float currentAPL)
 {
     return step(APLTrigger, currentAPL);
@@ -1062,17 +1059,6 @@ float ComputeBoostedTargetNitsFromBoostTNoRolloff(float currentAPL, float inputN
     return ComputeBoostedTargetNitsFromBoostTNoRolloff(currentAPL, inputNits, 0.0);
 }
 
-float ComputeBoostedTargetNitsNoRolloff(float currentAPL, float inputNits, float highAPLMetric)
-{
-    float safeInputNits = max(inputNits, 0.0);
-    return ComputeBoostedTargetNitsFromBoostTNoRolloff(currentAPL, safeInputNits, highAPLMetric);
-}
-
-float ComputeBoostedTargetNitsNoRolloff(float currentAPL, float inputNits)
-{
-    return ComputeBoostedTargetNitsNoRolloff(currentAPL, inputNits, 0.0);
-}
-
 
 float ComputeRollOffAnchorBoostedNitsFromSceneLogGain(float sceneLogGain)
 {
@@ -1096,28 +1082,78 @@ float ComputeRollOffAnchorBoostedNits(float currentAPL)
     return ComputeRollOffAnchorBoostedNits(currentAPL, 0.0);
 }
 
-float SolveDynamicRollOffStartNits(float currentAPL)
+// Precompute all scene-uniform BT.2390 rolloff setup in a 1x1 pass.
+// The fullscreen pass still computes the pixel-dependent NitsToPQ/PQToNits work,
+// but no longer recomputes source/target white, knee placement, or anchor per pixel.
+float4 ComputeBoostRolloffParamsFromSceneLogGain(float sceneLogGain)
 {
+    float fullParticipationSceneGain = exp2(sceneLogGain);
     float rollOffEndNits = max(BoostRollOff, 0.0);
+    float anchorBoostedNits = ComputeRollOffAnchorBoostedNitsFromSceneLogGain(sceneLogGain);
 
     if (rollOffEndNits <= 0.0)
-        return 0.0;
+        return float4(fullParticipationSceneGain, 0.0, 1.0, 0.0);
 
-    float referenceInputNits = max(rollOffEndNits, 1e-4);
-    float referenceBoostedNits = ComputeRollOffAnchorBoostedNits(currentAPL);
+    float sourcePeakNits = max(anchorBoostedNits, rollOffEndNits + 1e-4);
+    float sourceWhitePQ = max(NitsToPQ(sourcePeakNits), PQ_BLACK + 1e-6);
+    float targetWhitePQ = min(NitsToPQ(rollOffEndNits), sourceWhitePQ - 1e-6);
 
-    if (referenceBoostedNits <= referenceInputNits + 1e-4)
-        return referenceBoostedNits;
+    float pqRange = max(sourceWhitePQ - PQ_BLACK, 1e-6);
+    float maxLum = saturate((targetWhitePQ - PQ_BLACK) / pqRange);
 
-    float sourceBlackPQ = PQ_BLACK;
-    float sourceWhitePQ = max(NitsToPQ(referenceBoostedNits), sourceBlackPQ + 1e-6);
-    float targetWhitePQ = min(NitsToPQ(referenceInputNits), sourceWhitePQ - 1e-6);
-    float pqRange = max(sourceWhitePQ - sourceBlackPQ, 1e-6);
-    float maxLum = saturate((targetWhitePQ - sourceBlackPQ) / pqRange);
+    if (maxLum >= 1.0 - 1e-6)
+        return float4(fullParticipationSceneGain, 0.0, 1.0, 0.0);
+
     float kneeStart = ComputeBT2390ShapedKneeStart(maxLum, BoostRollOffShape);
-    float rollOffStartPQ = saturate(kneeStart * pqRange + sourceBlackPQ);
+    float compressionSpan = max(maxLum - kneeStart, 1e-6);
 
-    return max(PQToLinearScalar(rollOffStartPQ) * 10000.0, 0.0);
+    return float4(fullParticipationSceneGain, pqRange, kneeStart, compressionSpan);
+}
+
+float ComputePixelGainFromPrecomputedParams(float sceneLogGain, float inputNits, float4 boostParams)
+{
+    // Default PixelParticipationFloor is 1.0, so the pixel gain is scene-uniform.
+    // Read the precomputed full-participation gain instead of paying exp2() per pixel.
+    if (saturate(PixelParticipationFloor) >= 0.9999)
+        return max(boostParams.r, 0.0);
+
+    return ComputePixelGainFromSceneLogGain(sceneLogGain, inputNits);
+}
+
+float ApplyBT2390EETFToPQWithPrecomputedParams(float inputPQ, float4 boostParams)
+{
+    float pqRange = boostParams.g;
+
+    if (pqRange <= 0.0)
+        return saturate(inputPQ);
+
+    float kneeStart = saturate(boostParams.b);
+    float compressionSpan = max(boostParams.a, 1e-6);
+
+    float e1 = saturate((saturate(inputPQ) - PQ_BLACK) / pqRange);
+    float e2 = e1;
+
+    if (e1 >= kneeStart)
+    {
+        float shoulderSpan = max(1.0 - kneeStart, 1e-6);
+        float u = saturate((e1 - kneeStart) / shoulderSpan);
+        float shoulderPower = max(shoulderSpan / compressionSpan, 1.0);
+
+        e2 = kneeStart + compressionSpan * (1.0 - pow(1.0 - u, shoulderPower));
+    }
+
+    return saturate(e2 * pqRange + PQ_BLACK);
+}
+
+float ApplyBT2390EETFToNitsWithPrecomputedParams(float inputNits, float4 boostParams)
+{
+    float safeInputNits = max(inputNits, 0.0);
+
+    if (boostParams.g <= 0.0)
+        return safeInputNits;
+
+    float outputPQ = ApplyBT2390EETFToPQWithPrecomputedParams(NitsToPQ(safeInputNits), boostParams);
+    return max(PQToLinearScalar(outputPQ) * 10000.0, 0.0);
 }
 
 float ApplyBoostWithBT2390Rolloff(float signalLuma, float currentAPL, float anchorBoostedNits)
@@ -1135,62 +1171,20 @@ float ApplyBoostWithBT2390Rolloff(float signalLuma, float currentAPL, float anch
     return NitsToSignalLuma(rolledNits);
 }
 
-float ApplyBoostWithBT2390RolloffFromSceneLogGain(float signalLuma, float sceneLogGain, float anchorBoostedNits)
-{
-    float originalNits = SignalLumaToNits(signalLuma);
-    float safeOriginalNits = max(originalNits, 0.0);
-    float fullyBoostedNits = safeOriginalNits * ComputePixelGainFromSceneLogGain(sceneLogGain, safeOriginalNits);
-    float rollOffEndNits = max(BoostRollOff, 0.0);
-
-    if (rollOffEndNits <= 0.0)
-        return NitsToSignalLuma(fullyBoostedNits);
-
-    float sourcePeakNits = max(anchorBoostedNits, rollOffEndNits + 1e-4);
-    float rolledNits = max(ApplyBT2390EETFToNitsWithShape(fullyBoostedNits, sourcePeakNits, rollOffEndNits, BoostRollOffShape), safeOriginalNits);
-
-    return NitsToSignalLuma(rolledNits);
-}
-
 float ApplyBoostWithSelectedRolloff(float signalLuma, float currentAPL, float anchorBoostedNits)
 {
     return ApplyBoostWithBT2390Rolloff(signalLuma, currentAPL, anchorBoostedNits);
 }
 
-float ApplyBoostWithSelectedRolloffFromSceneLogGain(float signalLuma, float sceneLogGain, float anchorBoostedNits)
-{
-    if (APLInputMode == 1)
-    {
-        float originalNits     = PQToLinearScalar(signalLuma) * 10000.0;
-        float safeOriginalNits = max(originalNits, 0.0);
-        float pixelGain        = ComputePixelGainFromSceneLogGain(sceneLogGain, safeOriginalNits);
-        float fullyBoostedNits = safeOriginalNits * pixelGain;
-        float rollOffEndNits   = max(BoostRollOff, 0.0);
-
-        if (rollOffEndNits <= 0.0)
-            return NitsToPQ(fullyBoostedNits);
-
-        float sourcePeakNits   = max(anchorBoostedNits, rollOffEndNits + 1e-4);
-        float rolledPQ = ApplyBT2390EETFToPQWithShape(NitsToPQ(fullyBoostedNits), sourcePeakNits, rollOffEndNits, BoostRollOffShape);
-
-        // The BT.2390 mapping is monotonic in PQ space, so the original-signal floor
-        // can still be enforced directly on the encoded value.
-        return max(rolledPQ, signalLuma);
-    }
-
-    return ApplyBoostWithBT2390RolloffFromSceneLogGain(signalLuma, sceneLogGain, anchorBoostedNits);
-}
-
-float ComputeBoostedLumaNitsFromSceneLogGain(float inputLumaNits, float sceneLogGain, float anchorBoostedNits)
+float ComputeBoostedLumaNitsFromPrecomputedParams(float inputLumaNits, float sceneLogGain, float4 boostParams)
 {
     float safeInputLumaNits = max(inputLumaNits, 0.0);
-    float fullyBoostedNits = safeInputLumaNits * ComputePixelGainFromSceneLogGain(sceneLogGain, safeInputLumaNits);
-    float rollOffEndNits = max(BoostRollOff, 0.0);
+    float fullyBoostedNits = safeInputLumaNits * ComputePixelGainFromPrecomputedParams(sceneLogGain, safeInputLumaNits, boostParams);
 
-    if (rollOffEndNits <= 0.0)
+    if (boostParams.g <= 0.0)
         return fullyBoostedNits;
 
-    float sourcePeakNits = max(anchorBoostedNits, rollOffEndNits + 1e-4);
-    return max(ApplyBT2390EETFToNitsWithShape(fullyBoostedNits, sourcePeakNits, rollOffEndNits, BoostRollOffShape), safeInputLumaNits);
+    return max(ApplyBT2390EETFToNitsWithPrecomputedParams(fullyBoostedNits, boostParams), safeInputLumaNits);
 }
 
 float3 ApplySaturationAdjustment709(float3 linearColor, float saturation)
@@ -1241,7 +1235,7 @@ float SoftLimitBoostScale(float desiredScale, float maxScale, float kneeFraction
     return min(kneeStart + span * (x / (1.0 + x)), safeMax);
 }
 
-float3 ApplyBoostPreserveColorFromSceneLogGain(float3 color, float sceneLogGain, float anchorBoostedNits)
+float3 ApplyBoostPreserveColorFromPrecomputedParams(float3 color, float sceneLogGain, float4 boostParams)
 {
     if (APLInputMode == 1)
     {
@@ -1251,7 +1245,7 @@ float3 ApplyBoostPreserveColorFromSceneLogGain(float3 color, float sceneLogGain,
         if (originalLumaNits <= 1e-6)
             return color;
 
-        float boostedLumaNits = ComputeBoostedLumaNitsFromSceneLogGain(originalLumaNits, sceneLogGain, anchorBoostedNits);
+        float boostedLumaNits = ComputeBoostedLumaNitsFromPrecomputedParams(originalLumaNits, sceneLogGain, boostParams);
         float colorScale = boostedLumaNits / originalLumaNits;
 
         if (EnableColorPreservingBoostMode)
@@ -1264,8 +1258,6 @@ float3 ApplyBoostPreserveColorFromSceneLogGain(float3 color, float sceneLogGain,
         float3 boostedColorNits = linearColorNits * colorScale;
         float3 saturatedColorNits = ApplySaturationAdjustment2020Nits(boostedColorNits, SaturationComp);
 
-        // Re-encode all three channels in one vector call (2 vector pow) instead of
-        // three separate scalar calls (6 scalar pow).
         return LinearToPQBT2100(saturate(max(saturatedColorNits, 0.0) / 10000.0));
     }
 
@@ -1275,7 +1267,7 @@ float3 ApplyBoostPreserveColorFromSceneLogGain(float3 color, float sceneLogGain,
     if (originalLumaNits <= 1e-6)
         return color;
 
-    float boostedLumaNits = ComputeBoostedLumaNitsFromSceneLogGain(originalLumaNits, sceneLogGain, anchorBoostedNits);
+    float boostedLumaNits = ComputeBoostedLumaNitsFromPrecomputedParams(originalLumaNits, sceneLogGain, boostParams);
     float colorScale = boostedLumaNits / originalLumaNits;
 
     if (EnableColorPreservingBoostMode)
@@ -1567,12 +1559,6 @@ float SampleRealMeasuredOutputNitsForAPL(float aplPct, float targetNits)
     return targetNits / comp;
 }
 
-float SampleApproxMeasuredOutputNitsForAPL(float aplPct, float targetNits)
-{
-    float comp = max(LookupMeasuredComp1D(aplPct), 1e-6);
-    return targetNits / comp;
-}
-
 float ComputeGraphBoostedTargetNits(float aplPct, float inputNits, float anchorBoostedNits)
 {
     float currentAPL = saturate(aplPct / 100.0);
@@ -1644,13 +1630,6 @@ float GraphAxisCoordinateWithPQMax(float nits, float axisMaxNits, float axisMaxP
     return safeNits / safeAxisMaxNits;
 }
 
-float GraphAxisCoordinate(float nits, float axisMaxNits)
-{
-    float safeAxisMaxNits = max(axisMaxNits, 1.0);
-    float axisMaxPQ = GraphUsePQSpace ? max(NitsToPQ(safeAxisMaxNits), 1e-6) : 0.0;
-    return GraphAxisCoordinateWithPQMax(nits, safeAxisMaxNits, axisMaxPQ);
-}
-
 float GraphTickValueFromFractionWithPQMax(float frac, float axisMaxNits, float axisMaxPQ)
 {
     float safeAxisMaxNits = max(axisMaxNits, 1e-6);
@@ -1663,13 +1642,6 @@ float GraphTickValueFromFractionWithPQMax(float frac, float axisMaxNits, float a
     return max(PQToLinearScalar(tickPQ) * 10000.0, 0.0);
 }
 
-float GraphTickValueFromFraction(float frac, float axisMaxNits)
-{
-    float safeAxisMaxNits = max(axisMaxNits, 1e-6);
-    float axisMaxPQ = GraphUsePQSpace ? max(NitsToPQ(safeAxisMaxNits), 1e-6) : 0.0;
-    return GraphTickValueFromFractionWithPQMax(frac, safeAxisMaxNits, axisMaxPQ);
-}
-
 float GraphSampleNitsFromFraction(float frac, float axisMaxNits, float axisMaxPQ)
 {
     return GraphTickValueFromFractionWithPQMax(frac, axisMaxNits, axisMaxPQ);
@@ -1680,13 +1652,6 @@ float2 ToGraphPointWithPQMax(float2 graphPos, float2 graphSize, float axisMaxNit
     float nx = saturate(GraphAxisCoordinateWithPQMax(xNits, axisMaxNits, axisMaxPQ));
     float ny = GraphAxisCoordinateWithPQMax(yNits, axisMaxNits, axisMaxPQ);
     return graphPos + float2(nx * graphSize.x, (1.0 - ny) * graphSize.y);
-}
-
-float2 ToGraphPoint(float2 graphPos, float2 graphSize, float axisMaxNits, float xNits, float yNits)
-{
-    float safeAxisMaxNits = max(axisMaxNits, 1.0);
-    float axisMaxPQ = GraphUsePQSpace ? max(NitsToPQ(safeAxisMaxNits), 1e-6) : 0.0;
-    return ToGraphPointWithPQMax(graphPos, graphSize, safeAxisMaxNits, axisMaxPQ, xNits, yNits);
 }
 
 float DistanceToSegment(float2 p, float2 a, float2 b, out float h)
@@ -2109,13 +2074,19 @@ float4 PS_SmoothAPL(float4 vpos : SV_Position, float2 texcoord : TexCoord) : SV_
 
     // Precompute scene-uniform sceneLogGain here (1x1 pass) so PS_MainPass reads it from the
     // texture instead of recomputing the LUT lookup + log2 + pow chain for every pixel.
-    // .b is now the smoothed High APL % metric, so sceneLogGain moves to .a and the live pass
-    // recomputes the rolloff anchor from that value.
+    // .b is now the smoothed High APL % metric, so sceneLogGain moves to .a.
+    // The following Boost_Params pass derives the rolloff anchor and BT.2390 shoulder constants from it.
     float sceneLogGain = ComputeSceneLogGainFromAPL(smoothedAPL, smoothedHighAPLMetric);
 
     // r = smoothed closed-loop display-side APL metric, g = smoothed max sampled decoded scene nits,
     // b = smoothed High APL % metric, a = precomputed scene log-gain (uniform across all pixels)
     return float4(smoothedAPL, smoothedMaxSampledNits, smoothedHighAPLMetric, sceneLogGain);
+}
+
+float4 PS_CalcBoostParams(float4 vpos : SV_Position, float2 texcoord : TexCoord) : SV_Target
+{
+    float4 aplData = tex2Dlod(SamplerAPL, float4(0.5, 0.5, 0.0, 0.0));
+    return ComputeBoostRolloffParamsFromSceneLogGain(aplData.a);
 }
 
 float DrawOSDDigitAt(float2 texcoord, float2 topRight, float scale, float aspect, int digit)
@@ -2322,8 +2293,8 @@ float4 PS_MainPass(float4 vpos : SV_Position, float2 texcoord : TexCoord) : SV_T
     if (sceneLogGain <= 0.0 && (ShowOSD == false))
         return float4(color, 1.0);
 
-    float rollOffAnchorBoostedNits = ComputeRollOffAnchorBoostedNitsFromSceneLogGain(sceneLogGain);
-    float3 finalColor = ApplyBoostPreserveColorFromSceneLogGain(color, sceneLogGain, rollOffAnchorBoostedNits);
+    float4 boostParams = tex2Dlod(SamplerBoostParams, float4(0.5, 0.5, 0.0, 0.0));
+    float3 finalColor = ApplyBoostPreserveColorFromPrecomputedParams(color, sceneLogGain, boostParams);
 
     if (ShowOSD)
     {
@@ -2349,11 +2320,12 @@ float4 PS_CalcGraphParams(float4 vpos : SV_Position, float2 texcoord : TexCoord)
     float graphRawAPLPercent = clamp(GraphAPLIndex, 0.0, 100.0);
     float graphClosedLoopAPL = ComputeGraphClosedLoopAPLFromRawPercent(graphRawAPLPercent);
     float graphClosedLoopAPLPercent = graphClosedLoopAPL * 100.0;
-    float graphRollOffStartNits = SolveDynamicRollOffStartNits(graphClosedLoopAPL);
     float maxMeasuredNits = GetAPLMaxMeasuredNits(graphClosedLoopAPLPercent);
     float graphAnchorBoostedNits = ComputeRollOffAnchorBoostedNits(graphClosedLoopAPL);
 
-    return float4(graphRollOffStartNits, maxMeasuredNits, graphAxisMaxPQ, graphAnchorBoostedNits);
+    // r = solved closed-loop APL %, g = max measured nits, b = axis max PQ, a = rolloff anchor.
+    // The old r value was graphRollOffStartNits but PS_CalcGraphCurves never used it.
+    return float4(graphClosedLoopAPLPercent, maxMeasuredNits, graphAxisMaxPQ, graphAnchorBoostedNits);
 }
 
 // GRAPH PASS 1b: Precompute grid/tick/ref line screen-space endpoints (32 pixels — free).
@@ -2447,9 +2419,7 @@ float4 PS_CalcGraphCurves(float4 vpos : SV_Position, float2 texcoord : TexCoord)
     float4 graphParams               = tex2Dlod(SamplerGraphParams, float4(0.5, 0.5, 0.0, 0.0));
     float  graphAxisMaxPQ            = GraphUsePQSpace ? max(graphParams.b, 1e-6) : 0.0;
     float  graphRawAPLPercent        = clamp(GraphAPLIndex, 0.0, 100.0);
-    float  graphClosedLoopAPL        = ComputeGraphClosedLoopAPLFromRawPercent(graphRawAPLPercent);
-    float  graphClosedLoopAPLPercent = graphClosedLoopAPL * 100.0;
-    float  graphRollOffStartNits     = graphParams.r;
+    float  graphClosedLoopAPLPercent = graphParams.r;
     float  graphAnchorBoostedNits    = graphParams.a;
 
     bool useFF = GraphUseFullFieldWindowProjection;
@@ -2565,6 +2535,13 @@ technique EOTF_Boost_1D_APL_LUT
         VertexShader = PostProcessVS;
         PixelShader = PS_SmoothAPL;
         RenderTarget = TexAPL;
+    }
+
+    pass Boost_Params
+    {
+        VertexShader = PostProcessVS;
+        PixelShader = PS_CalcBoostParams;
+        RenderTarget = TexBoostParams;
     }
 
     pass Main_Boost
