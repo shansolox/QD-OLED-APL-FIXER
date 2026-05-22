@@ -1,3 +1,7 @@
+This is a modified fork of **mspeedo** shader for G8 G85SB (should work for other 3rd gen QDs in P1000) to include color preserving boost slider.
+
+Soft knee compression slider added.
+
 # EOTF Boost for QD-OLED
 
 This shader is based on the original [QD-OLED-APL-FIXER](https://github.com/DespairArdor/QD-OLED-APL-FIXER) project by **DespairArdor**.
@@ -238,24 +242,3 @@ This shader is designed for **QD-OLED Peak 1000 / High Brightness mode**, and th
 It is not meant as a one-size-fits-all HDR preset, but it can be adapted for other displays if you have matching measured APL data.
 
 
-
-## PQ EOTF Measurements BEFORE/AFTER
-
-Here are measurements for Samsung Odyssey OLED G8 G85SB in Peak Brightness HIGH mode and with default shader settings. We can see how this shader affects monitor real HDR brightness tracking with various boost strength settings.
-
-**No boost**   vs   **Max APL Boost Strength: 0.4 (default)**   vs   **Max APL Boost Strength: 1.0**
-
-10% window size:
-<img width="2289" height="616" alt="image" src="https://github.com/user-attachments/assets/d3c0b41c-097c-4bcc-898b-2ae95082ea9b" />
-
-15% window size:
-<img width="2286" height="625" alt="image" src="https://github.com/user-attachments/assets/abfbd9f6-6c92-4cd3-b80b-dd6cfb230f60" />
-
-25% window size:
-<img width="2285" height="621" alt="image" src="https://github.com/user-attachments/assets/7e2a35a4-427e-475c-9d16-fd1853f01a8f" />
-
-50% window size:
-<img width="2285" height="619" alt="image" src="https://github.com/user-attachments/assets/99c1584d-1769-4248-8248-9e614605f7b2" />
-
-100% window size:
-<img width="2284" height="620" alt="image" src="https://github.com/user-attachments/assets/37306048-6381-4886-9936-9cf598d5ba7a" />
