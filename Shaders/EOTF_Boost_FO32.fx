@@ -1,6 +1,7 @@
 /*
-    EOTF Boost v8.8 - 1D APL Lookup + Optional High APL Adaptive Boost
-	Calibrated for monitor MSI MPG 341CQR QD-OLED X36
+    EOTF Boost v8.7.1.1F - 1D APL Lookup + Optional High APL Adaptive Boost
+    Calibrated for monitor SAMSUNG OLED G8 G85SB, tweaked slightly for AORUS FO32U/2/2P (F04) based on approximated and aggregated values from TFT review
+    Added color preserving boost limit slider
     ================================================================
 
     Purpose
@@ -69,7 +70,7 @@ uniform float APLReferenceWhiteNits <
     ui_min = 10.0; ui_max = 1500.0; ui_step = 1.0;
     ui_label = "APL Reference White (nits)";
     UI_TOOLTIP("Reference white used only for the APL metric normalization. It does not directly clamp output nits or change the graph axes.")
-> = 1350.0;
+> = 1040.0;
 
 uniform float APLTrigger <
     ui_type = "slider";
@@ -90,7 +91,7 @@ uniform float MaxAPLBoostStrength <
     ui_min = 0.0; ui_max = 2.0; ui_step = 0.01;
     ui_label = "Global APL Boost Strength";
     UI_TOOLTIP("Scales the measured APL compensation in log-gain space before per-pixel participation is applied. 1.0 means full measured compensation at maximum LUT weight. Values below 1.0 under-compensate. Values above 1.0 intentionally over-compensate.")
-> = 0.5;
+> = 0.4;
 
 
 uniform bool EnablePerAPLBoostStrength <
@@ -114,7 +115,7 @@ uniform float APLBoostStrength05 <
     ui_category_closed = true;
     ui_label = "APL 5% Boost Strength";
     UI_TOOLTIP("Per-APL boost strength override for the measured 5% APL point. Used only when Enable Per-APL Boost Strength is enabled.")
-> = 0.8;
+> = 0.7;
 
 uniform float APLBoostStrength07 <
     ui_type = "slider";
@@ -123,7 +124,7 @@ uniform float APLBoostStrength07 <
     ui_category_closed = true;
     ui_label = "APL 7% Boost Strength";
     UI_TOOLTIP("Per-APL boost strength override for the measured 7% APL point. Used only when Enable Per-APL Boost Strength is enabled.")
-> = 0.9;
+> = 0.7;
 
 uniform float APLBoostStrength10 <
     ui_type = "slider";
@@ -132,7 +133,7 @@ uniform float APLBoostStrength10 <
     ui_category_closed = true;
     ui_label = "APL 10% Boost Strength";
     UI_TOOLTIP("Per-APL boost strength override for the measured 10% APL point. Used only when Enable Per-APL Boost Strength is enabled.")
-> = 0.8;
+> = 0.7;
 
 uniform float APLBoostStrength14 <
     ui_type = "slider";
@@ -141,7 +142,7 @@ uniform float APLBoostStrength14 <
     ui_category_closed = true;
     ui_label = "APL 14% Boost Strength";
     UI_TOOLTIP("Per-APL boost strength override for the measured 14% APL point. Used only when Enable Per-APL Boost Strength is enabled.")
-> = 0.65;
+> = 0.6;
 
 uniform float APLBoostStrength18 <
     ui_type = "slider";
@@ -211,7 +212,7 @@ uniform float HighAPLMetricMaxNits <
     ui_category_closed = true;
     ui_label = "High APL Metric Max (nits)";
     UI_TOOLTIP("Per-pixel upper bound for the High APL % metric. Pixels at or above this level contribute 1.0 to the metric. Pixels in between are scaled linearly. Used only when Enable High APL Adaptive Boost is enabled.")
-> = 500.0;
+> = 400.0;
 
 uniform float HighAPLReductionStartPercent <
     ui_type = "slider";
@@ -245,14 +246,14 @@ uniform float BoostRollOff <
     ui_min = 500.0; ui_max = 1500.0; ui_step = 1.0;
     ui_label = "Boost Roll-Off Target (nits)";
     UI_TOOLTIP("Desired output anchor of the PQ highlight rolloff in nits. The shader dynamically places the knee from the current smoothed APL so the boosted curve lands on this endpoint more consistently across APL levels.")
-> = 1350.0;
+> = 1000.0;
 
 uniform float BoostRollOffShape <
     ui_type = "slider";
     ui_min = 0.25; ui_max = 4.0; ui_step = 0.01;
     ui_label = "Boost Roll-Off Shape";
     UI_TOOLTIP("Adjusts the live roll off character by moving the roll off start together with the shoulder curvature so the transition stays smooth and monotonic. 1.0 = standard BT.2390. Values below 1.0 start later and hold highlights higher longer. Values above 1.0 start earlier and compress highlights harder.")
-> = 1.5;
+> = 1.25;
 
 
 static const float PixelParticipationStartNits = 1.0;
@@ -282,12 +283,12 @@ uniform float SaturationComp <
     UI_TOOLTIP("Adjusts color saturation after the color-preserving luminance boost. 1.0 = neutral. Lower values reduce saturation. Higher values increase saturation while preserving the boosted pixel luminance.")
 > = 1.0;
 
-uniform bool EnableColorPreservingBoostMode <
+uniform float EnableColorPreservingBoostMode <
+    ui_type = "slider";
+    ui_min = 0.75; ui_max = 1.0; ui_step = 0.01;
     ui_label = "Preserve Color by Reducing Boost";
-    UI_TOOLTIP("When enabled, saturated colors keep their RGB ratio by reducing only the added boost before channels would exceed the Boost Roll-Off Target. Uses a fixed soft knee of 0.85. Original behavior is unchanged when disabled.")
-> = false;
-
-static const float COLOR_PRESERVING_BOOST_KNEE = 0.85;
+    UI_TOOLTIP("When enabled, saturated colors keep their RGB ratio by reducing only the added boost before channels would exceed the Boost Roll-Off Target. Variable. Original behavior is unchanged when at 1.0.")
+> = 1.0;
 
 uniform float SIGNAL_REFERENCE_NITS <
     ui_type = "slider";
@@ -348,7 +349,7 @@ uniform float GraphAxisMaxNits <
     ui_min = 500.0; ui_max = 10000.0; ui_step = 1.0;
     ui_label = "Graph Axis Max (nits)";
     UI_TOOLTIP("Maximum nits shown on both graph axes. Raising it lets you inspect curve behavior beyond 1000-nit input without changing the live shader.")
-> = 1350.0;
+> = 1000.0;
 
 uniform float GraphOpacity <
     ui_type = "slider";
@@ -374,23 +375,6 @@ texture TexAPL
 sampler SamplerAPL
 {
     Texture = TexAPL;
-};
-
-// Scene-uniform boost/rolloff parameters precomputed after APL smoothing.
-// RGBA layout:
-//   .r = full-participation scene gain exp2(sceneLogGain)
-//   .g = BT.2390 PQ range; <= 0 means rolloff inactive
-//   .b = BT.2390 shaped knee start in normalized PQ range
-//   .a = BT.2390 compression span in normalized PQ range
-texture TexBoostParams
-{
-    Width = 1;
-    Height = 1;
-    Format = RGBA32F;
-};
-sampler SamplerBoostParams
-{
-    Texture = TexBoostParams;
 };
 
 texture TexAPLInstant
@@ -559,7 +543,7 @@ float LinearToPQBT2100(float linearValue)
 }
 
 // float3 overload — encodes all three channels in one pair of vector pow calls instead of
-// three pairs of scalar calls.  Used by ApplyBoostPreserveColorFromPrecomputedParams to re-encode
+// three pairs of scalar calls.  Used by ApplyBoostPreserveColorFromSceneLogGain to re-encode
 // the boosted PQ output without serialising the per-channel work.
 float3 LinearToPQBT2100(float3 v)
 {
@@ -674,6 +658,11 @@ float ApplyBT2390EETFToPQWithShape(float inputPQ, float sourcePeakNits, float ta
     return saturate(e2 * pqRange + sourceBlackPQ);
 }
 
+float ApplyBT2390EETFToPQ(float inputPQ, float sourcePeakNits, float targetPeakNits)
+{
+    return ApplyBT2390EETFToPQWithShape(inputPQ, sourcePeakNits, targetPeakNits, 1.0);
+}
+
 float ApplyBT2390EETFToNitsWithShape(float inputNits, float sourcePeakNits, float targetPeakNits, float shapeExponent)
 {
     float safeInputNits = max(inputNits, 0.0);
@@ -686,6 +675,11 @@ float ApplyBT2390EETFToNits(float inputNits, float sourcePeakNits, float targetP
     return ApplyBT2390EETFToNitsWithShape(inputNits, sourcePeakNits, targetPeakNits, 1.0);
 }
 
+float GetSignalLuma(float3 color)
+{
+    return (APLInputMode == 1) ? GetLuma2020(color) : GetLuma709(color);
+}
+
 float GetSceneNitsFromColor(float3 color)
 {
     if (APLInputMode == 1)
@@ -695,6 +689,11 @@ float GetSceneNitsFromColor(float3 color)
     }
 
     return GetLuma709(max(color, 0.0.xxx)) * SIGNAL_REFERENCE_NITS;
+}
+
+float GetAPLMetricSample(float3 color)
+{
+    return saturate(GetSceneNitsFromColor(color) / max(APLReferenceWhiteNits, 1.0));
 }
 
 float GetDigit(int digit, float2 uv)
@@ -758,7 +757,7 @@ static const float APL_POINTS[APL_COUNT] =
 
 static const float NIT_POINTS[NIT_COUNT] =
 {
-    3.575635, 5.171928, 7.225205, 10.050671, 13.609937, 18.423039, 24.669117, 32.378420, 42.624646, 55.159547, 71.694443, 92.698470, 118.169439, 151.523348, 191.827692, 244.458256, 307.922168, 390.672851, 494.833309, 620.319592, 783.927695, 981.175502, 1238.660348, 1350.000000
+    10.302358, 13.132379, 16.611621, 20.870708, 26.064850, 32.378420, 40.030390, 49.280814, 60.438551, 73.870492, 90.012580, 109.383004, 132.598006, 160.390856, 193.634650, 233.369755, 280.836899, 337.517130, 405.180165, 485.942985, 587.341000, 707.414628, 845.814884, 1040.932391
 };
 
 // Original 2D table collapsed to one representative compensation value per APL row.
@@ -767,19 +766,19 @@ static const float NIT_POINTS[NIT_COUNT] =
 static const float COMP_APL_1D[APL_COUNT] =
 {
     1.000000, // APL 3
-    1.485507, // APL 5
-    1.937592, // APL 7
-    2.726513, // APL 10
-    2.975849, // APL 14
-    3.159946, // APL 18
-    3.315940, // APL 22
-    3.417932, // APL 25
-    3.685460, // APL 35
-    3.992070  // APL 50
+    1.352556, // APL 5
+    1.673813, // APL 7
+    2.151376, // APL 10
+    2.455437, // APL 14
+    2.636610, // APL 18
+    2.760512, // APL 22
+    2.839076, // APL 25
+    3.064304, // APL 35
+    3.345667  // APL 50
 };
 
 static const float COMP_MIN = 1.0;
-static const float COMP_MAX = 3.992070;
+static const float COMP_MAX = 3.345667;
 
 int FindAPLIndex(float aplPct)
 {
@@ -846,6 +845,11 @@ float LookupPerAPLBoostStrength(float aplPct)
 }
 
 // LUT shapes the scene-compensation weight only. Final response is a nits-domain gain.
+float MeasuredCompToBoostT(float comp)
+{
+    return saturate((comp - COMP_MIN) / max(COMP_MAX - COMP_MIN, 1e-6));
+}
+
 float ComputeAPLBoostFader(float currentAPL)
 {
     return step(APLTrigger, currentAPL);
@@ -1059,6 +1063,17 @@ float ComputeBoostedTargetNitsFromBoostTNoRolloff(float currentAPL, float inputN
     return ComputeBoostedTargetNitsFromBoostTNoRolloff(currentAPL, inputNits, 0.0);
 }
 
+float ComputeBoostedTargetNitsNoRolloff(float currentAPL, float inputNits, float highAPLMetric)
+{
+    float safeInputNits = max(inputNits, 0.0);
+    return ComputeBoostedTargetNitsFromBoostTNoRolloff(currentAPL, safeInputNits, highAPLMetric);
+}
+
+float ComputeBoostedTargetNitsNoRolloff(float currentAPL, float inputNits)
+{
+    return ComputeBoostedTargetNitsNoRolloff(currentAPL, inputNits, 0.0);
+}
+
 
 float ComputeRollOffAnchorBoostedNitsFromSceneLogGain(float sceneLogGain)
 {
@@ -1082,78 +1097,28 @@ float ComputeRollOffAnchorBoostedNits(float currentAPL)
     return ComputeRollOffAnchorBoostedNits(currentAPL, 0.0);
 }
 
-// Precompute all scene-uniform BT.2390 rolloff setup in a 1x1 pass.
-// The fullscreen pass still computes the pixel-dependent NitsToPQ/PQToNits work,
-// but no longer recomputes source/target white, knee placement, or anchor per pixel.
-float4 ComputeBoostRolloffParamsFromSceneLogGain(float sceneLogGain)
+float SolveDynamicRollOffStartNits(float currentAPL)
 {
-    float fullParticipationSceneGain = exp2(sceneLogGain);
     float rollOffEndNits = max(BoostRollOff, 0.0);
-    float anchorBoostedNits = ComputeRollOffAnchorBoostedNitsFromSceneLogGain(sceneLogGain);
 
     if (rollOffEndNits <= 0.0)
-        return float4(fullParticipationSceneGain, 0.0, 1.0, 0.0);
+        return 0.0;
 
-    float sourcePeakNits = max(anchorBoostedNits, rollOffEndNits + 1e-4);
-    float sourceWhitePQ = max(NitsToPQ(sourcePeakNits), PQ_BLACK + 1e-6);
-    float targetWhitePQ = min(NitsToPQ(rollOffEndNits), sourceWhitePQ - 1e-6);
+    float referenceInputNits = max(rollOffEndNits, 1e-4);
+    float referenceBoostedNits = ComputeRollOffAnchorBoostedNits(currentAPL);
 
-    float pqRange = max(sourceWhitePQ - PQ_BLACK, 1e-6);
-    float maxLum = saturate((targetWhitePQ - PQ_BLACK) / pqRange);
+    if (referenceBoostedNits <= referenceInputNits + 1e-4)
+        return referenceBoostedNits;
 
-    if (maxLum >= 1.0 - 1e-6)
-        return float4(fullParticipationSceneGain, 0.0, 1.0, 0.0);
-
+    float sourceBlackPQ = PQ_BLACK;
+    float sourceWhitePQ = max(NitsToPQ(referenceBoostedNits), sourceBlackPQ + 1e-6);
+    float targetWhitePQ = min(NitsToPQ(referenceInputNits), sourceWhitePQ - 1e-6);
+    float pqRange = max(sourceWhitePQ - sourceBlackPQ, 1e-6);
+    float maxLum = saturate((targetWhitePQ - sourceBlackPQ) / pqRange);
     float kneeStart = ComputeBT2390ShapedKneeStart(maxLum, BoostRollOffShape);
-    float compressionSpan = max(maxLum - kneeStart, 1e-6);
+    float rollOffStartPQ = saturate(kneeStart * pqRange + sourceBlackPQ);
 
-    return float4(fullParticipationSceneGain, pqRange, kneeStart, compressionSpan);
-}
-
-float ComputePixelGainFromPrecomputedParams(float sceneLogGain, float inputNits, float4 boostParams)
-{
-    // Default PixelParticipationFloor is 1.0, so the pixel gain is scene-uniform.
-    // Read the precomputed full-participation gain instead of paying exp2() per pixel.
-    if (saturate(PixelParticipationFloor) >= 0.9999)
-        return max(boostParams.r, 0.0);
-
-    return ComputePixelGainFromSceneLogGain(sceneLogGain, inputNits);
-}
-
-float ApplyBT2390EETFToPQWithPrecomputedParams(float inputPQ, float4 boostParams)
-{
-    float pqRange = boostParams.g;
-
-    if (pqRange <= 0.0)
-        return saturate(inputPQ);
-
-    float kneeStart = saturate(boostParams.b);
-    float compressionSpan = max(boostParams.a, 1e-6);
-
-    float e1 = saturate((saturate(inputPQ) - PQ_BLACK) / pqRange);
-    float e2 = e1;
-
-    if (e1 >= kneeStart)
-    {
-        float shoulderSpan = max(1.0 - kneeStart, 1e-6);
-        float u = saturate((e1 - kneeStart) / shoulderSpan);
-        float shoulderPower = max(shoulderSpan / compressionSpan, 1.0);
-
-        e2 = kneeStart + compressionSpan * (1.0 - pow(1.0 - u, shoulderPower));
-    }
-
-    return saturate(e2 * pqRange + PQ_BLACK);
-}
-
-float ApplyBT2390EETFToNitsWithPrecomputedParams(float inputNits, float4 boostParams)
-{
-    float safeInputNits = max(inputNits, 0.0);
-
-    if (boostParams.g <= 0.0)
-        return safeInputNits;
-
-    float outputPQ = ApplyBT2390EETFToPQWithPrecomputedParams(NitsToPQ(safeInputNits), boostParams);
-    return max(PQToLinearScalar(outputPQ) * 10000.0, 0.0);
+    return max(PQToLinearScalar(rollOffStartPQ) * 10000.0, 0.0);
 }
 
 float ApplyBoostWithBT2390Rolloff(float signalLuma, float currentAPL, float anchorBoostedNits)
@@ -1171,20 +1136,62 @@ float ApplyBoostWithBT2390Rolloff(float signalLuma, float currentAPL, float anch
     return NitsToSignalLuma(rolledNits);
 }
 
+float ApplyBoostWithBT2390RolloffFromSceneLogGain(float signalLuma, float sceneLogGain, float anchorBoostedNits)
+{
+    float originalNits = SignalLumaToNits(signalLuma);
+    float safeOriginalNits = max(originalNits, 0.0);
+    float fullyBoostedNits = safeOriginalNits * ComputePixelGainFromSceneLogGain(sceneLogGain, safeOriginalNits);
+    float rollOffEndNits = max(BoostRollOff, 0.0);
+
+    if (rollOffEndNits <= 0.0)
+        return NitsToSignalLuma(fullyBoostedNits);
+
+    float sourcePeakNits = max(anchorBoostedNits, rollOffEndNits + 1e-4);
+    float rolledNits = max(ApplyBT2390EETFToNitsWithShape(fullyBoostedNits, sourcePeakNits, rollOffEndNits, BoostRollOffShape), safeOriginalNits);
+
+    return NitsToSignalLuma(rolledNits);
+}
+
 float ApplyBoostWithSelectedRolloff(float signalLuma, float currentAPL, float anchorBoostedNits)
 {
     return ApplyBoostWithBT2390Rolloff(signalLuma, currentAPL, anchorBoostedNits);
 }
 
-float ComputeBoostedLumaNitsFromPrecomputedParams(float inputLumaNits, float sceneLogGain, float4 boostParams)
+float ApplyBoostWithSelectedRolloffFromSceneLogGain(float signalLuma, float sceneLogGain, float anchorBoostedNits)
+{
+    if (APLInputMode == 1)
+    {
+        float originalNits     = PQToLinearScalar(signalLuma) * 10000.0;
+        float safeOriginalNits = max(originalNits, 0.0);
+        float pixelGain        = ComputePixelGainFromSceneLogGain(sceneLogGain, safeOriginalNits);
+        float fullyBoostedNits = safeOriginalNits * pixelGain;
+        float rollOffEndNits   = max(BoostRollOff, 0.0);
+
+        if (rollOffEndNits <= 0.0)
+            return NitsToPQ(fullyBoostedNits);
+
+        float sourcePeakNits   = max(anchorBoostedNits, rollOffEndNits + 1e-4);
+        float rolledPQ = ApplyBT2390EETFToPQWithShape(NitsToPQ(fullyBoostedNits), sourcePeakNits, rollOffEndNits, BoostRollOffShape);
+
+        // The BT.2390 mapping is monotonic in PQ space, so the original-signal floor
+        // can still be enforced directly on the encoded value.
+        return max(rolledPQ, signalLuma);
+    }
+
+    return ApplyBoostWithBT2390RolloffFromSceneLogGain(signalLuma, sceneLogGain, anchorBoostedNits);
+}
+
+float ComputeBoostedLumaNitsFromSceneLogGain(float inputLumaNits, float sceneLogGain, float anchorBoostedNits)
 {
     float safeInputLumaNits = max(inputLumaNits, 0.0);
-    float fullyBoostedNits = safeInputLumaNits * ComputePixelGainFromPrecomputedParams(sceneLogGain, safeInputLumaNits, boostParams);
+    float fullyBoostedNits = safeInputLumaNits * ComputePixelGainFromSceneLogGain(sceneLogGain, safeInputLumaNits);
+    float rollOffEndNits = max(BoostRollOff, 0.0);
 
-    if (boostParams.g <= 0.0)
+    if (rollOffEndNits <= 0.0)
         return fullyBoostedNits;
 
-    return max(ApplyBT2390EETFToNitsWithPrecomputedParams(fullyBoostedNits, boostParams), safeInputLumaNits);
+    float sourcePeakNits = max(anchorBoostedNits, rollOffEndNits + 1e-4);
+    return max(ApplyBT2390EETFToNitsWithShape(fullyBoostedNits, sourcePeakNits, rollOffEndNits, BoostRollOffShape), safeInputLumaNits);
 }
 
 float3 ApplySaturationAdjustment709(float3 linearColor, float saturation)
@@ -1199,43 +1206,7 @@ float3 ApplySaturationAdjustment2020Nits(float3 linearColorNits, float saturatio
     return lumaNits.xxx + (linearColorNits - lumaNits.xxx) * saturation;
 }
 
-float Max3(float3 v)
-{
-    return max(max(v.r, v.g), v.b);
-}
-
-float ComputeMaxHuePreservingScale(float3 rgb, float channelLimit)
-{
-    float maxChannel = Max3(rgb);
-
-    if (maxChannel <= 1e-6)
-        return 1.0;
-
-    return max(channelLimit / maxChannel, 0.0);
-}
-
-float SoftLimitBoostScale(float desiredScale, float maxScale, float kneeFraction)
-{
-    // This limiter operates only on added boost. It never returns below 1.0,
-    // so source pixels are not darkened when they already have no channel headroom.
-    float safeDesired = max(desiredScale, 1.0);
-    float safeMax = max(maxScale, 1.0);
-
-    if (safeDesired <= 1.0 || safeMax <= 1.0 + 1e-6)
-        return 1.0;
-
-    float kneeStart = lerp(1.0, safeMax, saturate(kneeFraction));
-
-    if (safeDesired <= kneeStart)
-        return safeDesired;
-
-    float span = max(safeMax - kneeStart, 1e-6);
-    float x = (safeDesired - kneeStart) / span;
-
-    return min(kneeStart + span * (x / (1.0 + x)), safeMax);
-}
-
-float3 ApplyBoostPreserveColorFromPrecomputedParams(float3 color, float sceneLogGain, float4 boostParams)
+float3 ApplyBoostPreserveColorFromSceneLogGain(float3 color, float sceneLogGain, float anchorBoostedNits)
 {
     if (APLInputMode == 1)
     {
@@ -1245,19 +1216,13 @@ float3 ApplyBoostPreserveColorFromPrecomputedParams(float3 color, float sceneLog
         if (originalLumaNits <= 1e-6)
             return color;
 
-        float boostedLumaNits = ComputeBoostedLumaNitsFromPrecomputedParams(originalLumaNits, sceneLogGain, boostParams);
+        float boostedLumaNits = ComputeBoostedLumaNitsFromSceneLogGain(originalLumaNits, sceneLogGain, anchorBoostedNits);
         float colorScale = boostedLumaNits / originalLumaNits;
-
-        if (EnableColorPreservingBoostMode)
-        {
-            float outputChannelLimitNits = clamp(BoostRollOff, 1.0, 10000.0);
-            float maxHuePreservingScale = ComputeMaxHuePreservingScale(linearColorNits, outputChannelLimitNits);
-            colorScale = SoftLimitBoostScale(colorScale, maxHuePreservingScale, COLOR_PRESERVING_BOOST_KNEE);
-        }
-
         float3 boostedColorNits = linearColorNits * colorScale;
         float3 saturatedColorNits = ApplySaturationAdjustment2020Nits(boostedColorNits, SaturationComp);
 
+        // Re-encode all three channels in one vector call (2 vector pow) instead of
+        // three separate scalar calls (6 scalar pow).
         return LinearToPQBT2100(saturate(max(saturatedColorNits, 0.0) / 10000.0));
     }
 
@@ -1267,16 +1232,8 @@ float3 ApplyBoostPreserveColorFromPrecomputedParams(float3 color, float sceneLog
     if (originalLumaNits <= 1e-6)
         return color;
 
-    float boostedLumaNits = ComputeBoostedLumaNitsFromPrecomputedParams(originalLumaNits, sceneLogGain, boostParams);
+    float boostedLumaNits = ComputeBoostedLumaNitsFromSceneLogGain(originalLumaNits, sceneLogGain, anchorBoostedNits);
     float colorScale = boostedLumaNits / originalLumaNits;
-
-    if (EnableColorPreservingBoostMode)
-    {
-        float outputChannelLimit = clamp(BoostRollOff, 1.0, 10000.0) / max(SIGNAL_REFERENCE_NITS, 1.0);
-        float maxHuePreservingScale = ComputeMaxHuePreservingScale(max(linearColor, 0.0.xxx), outputChannelLimit);
-        colorScale = SoftLimitBoostScale(colorScale, maxHuePreservingScale, COLOR_PRESERVING_BOOST_KNEE);
-    }
-
     float3 boostedColor = linearColor * colorScale;
 
     return ApplySaturationAdjustment709(boostedColor, SaturationComp);
@@ -1304,49 +1261,49 @@ static const float GRAPH_COMP_TABLE_2D[APL_COUNT * NIT_COUNT] =
     1.000000, 1.000000, 1.000000, 1.000000, 1.000000, 1.000000, 1.000000, 1.000000,
 
     // APL 5
-    1.720651, 1.686332, 1.639477, 1.600348, 1.600708, 1.577878, 1.542435, 1.511557,
-    1.503835, 1.502406, 1.495001, 1.485507, 1.483857, 1.489657, 1.482153, 1.468116,
-    1.448344, 1.444867, 1.450962, 1.452448, 1.469464, 1.456834, 1.451324, 1.453880,
+    1.275485, 1.279098, 1.298112, 1.311262, 1.320233, 1.306626, 1.336365, 1.320144,
+    1.337008, 1.337614, 1.354279, 1.352556, 1.347158, 1.353409, 1.354995, 1.357722,
+    1.360410, 1.379355, 1.375188, 1.377428, 1.380128, 1.378296, 1.394903, 1.403779,
 
     // APL 7
-    2.386696, 2.301803, 2.208239, 2.142507, 2.140282, 2.077152, 2.038432, 1.991094,
-    1.993522, 1.968427, 1.989762, 1.937592, 1.929698, 1.925020, 1.945632, 1.946108,
-    1.925587, 1.902872, 1.901151, 1.913164, 1.899819, 1.886626, 1.878231, 1.890897,
+    1.636865, 1.586585, 1.600228, 1.632120, 1.646603, 1.656140, 1.653732, 1.648574,
+    1.659723, 1.638967, 1.676518, 1.673813, 1.667162, 1.672429, 1.678772, 1.682167,
+    1.684833, 1.688457, 1.682479, 1.705485, 1.708849, 1.722217, 1.732755, 1.743012,
 
     // APL 10
-    3.533441, 3.322778, 3.150550, 2.996933, 2.991533, 2.952331, 2.859779, 2.786477,
-    2.785140, 2.774786, 2.729192, 2.726513, 2.677344, 2.659034, 2.670534, 2.664711,
-    2.656535, 2.635426, 2.617849, 2.644629, 2.608929, 2.597025, 2.623546, 2.643980,
+    2.222370, 2.139135, 2.131274, 2.103239, 2.119450, 2.139539, 2.144950, 2.119860,
+    2.154030, 2.144674, 2.181553, 2.151376, 2.139477, 2.150906, 2.153600, 2.140693,
+    2.162291, 2.190399, 2.181303, 2.170379, 2.194950, 2.195467, 2.208124, 2.226317,
 
     // APL 14
-    3.944622, 3.742778, 3.486730, 3.316180, 3.278714, 3.241277, 3.170756, 3.107104,
-    3.048998, 3.033891, 3.007011, 2.975850, 2.967055, 2.930338, 2.894044, 2.877144,
-    2.871816, 2.870981, 2.843950, 2.836061, 2.828960, 2.824714, 2.810953, 2.860440,
+    2.574646, 2.466301, 2.477981, 2.440763, 2.439207, 2.453153, 2.457554, 2.437744,
+    2.459988, 2.467005, 2.474901, 2.455437, 2.446400, 2.453859, 2.454635, 2.467066,
+    2.467625, 2.465686, 2.466095, 2.466487, 2.476404, 2.484286, 2.496364, 2.518080,
 
     // APL 18
-    4.331250, 4.026790, 3.777349, 3.558558, 3.507555, 3.442118, 3.384474, 3.305192,
-    3.244043, 3.216516, 3.186545, 3.159946, 3.136808, 3.105590, 3.059186, 3.035061,
-    3.029201, 3.033312, 3.008409, 2.994243, 2.975847, 2.974065, 2.964559, 3.025595,
+    2.748700, 2.653554, 2.657380, 2.630880, 2.595614, 2.617234, 2.624612, 2.604644,
+    2.621808, 2.624117, 2.640117, 2.636610, 2.604680, 2.617061, 2.615594, 2.612188,
+    2.617207, 2.621120, 2.624654, 2.626987, 2.640365, 2.633628, 2.665580, 2.675877,
 
     // APL 22
-    4.643759, 4.306869, 4.014115, 3.780358, 3.693690, 3.622282, 3.573737, 3.487421,
-    3.425357, 3.371692, 3.345787, 3.315940, 3.279914, 3.244380, 3.207378, 3.189466,
-    3.174613, 3.166520, 3.153845, 3.131529, 3.105266, 3.106722, 3.107669, 3.162626,
+    2.916959, 2.818433, 2.786699, 2.777913, 2.748502, 2.748234, 2.764812, 2.754077,
+    2.767587, 2.764558, 2.776648, 2.760512, 2.734844, 2.742903, 2.740379, 2.745571,
+    2.753666, 2.757212, 2.750390, 2.758649, 2.770630, 2.772743, 2.790399, 2.814688,
 
     // APL 25
-    4.890135, 4.476783, 4.184533, 3.925642, 3.853435, 3.752898, 3.701382, 3.611937,
-    3.544263, 3.498814, 3.460554, 3.417932, 3.379274, 3.360057, 3.310112, 3.291375,
-    3.265695, 3.262604, 3.242291, 3.225440, 3.203959, 3.197273, 3.200682, 3.262033,
+    3.005716, 2.911831, 2.892784, 2.875547, 2.824210, 2.833016, 2.856895, 2.834469,
+    2.853785, 2.843423, 2.864118, 2.839076, 2.816207, 2.827746, 2.825887, 2.840115,
+    2.842497, 2.844660, 2.835615, 2.839335, 2.859106, 2.857170, 2.876447, 2.900269,
 
     // APL 35
-    5.417324, 5.035198, 4.643715, 4.309623, 4.221975, 4.075571, 4.022938, 3.914059,
-    3.842109, 3.779826, 3.737622, 3.685461, 3.643943, 3.617834, 3.570377, 3.528255,
-    3.503582, 3.500313, 3.490984, 3.471195, 3.427937, 3.423172, 3.433216, 3.502432,
+    3.227778, 3.139621, 3.086106, 3.101464, 3.053503, 3.050585, 3.063989, 3.034956,
+    3.074032, 3.056235, 3.082187, 3.064304, 3.033025, 3.038294, 3.037854, 3.051513,
+    3.057893, 3.059339, 3.042766, 3.063924, 3.067941, 3.076905, 3.098045, 3.124520,
 
     // APL 50
-    6.329473, 5.782274, 5.253617, 4.820496, 4.677353, 4.489843, 4.406326, 4.286695,
-    4.203659, 4.119237, 4.061790, 3.992070, 3.953981, 3.914708, 3.851887, 3.803306,
-    3.757446, 3.752999, 3.753410, 3.726083, 3.677635, 3.661738, 3.674132, 3.769405,
+    3.605147, 3.469041, 3.422317, 3.396852, 3.379085, 3.350383, 3.331431, 3.333736,
+    3.385554, 3.346382, 3.380603, 3.345667, 3.325029, 3.308191, 3.317324, 3.329362,
+    3.338411, 3.331323, 3.321922, 3.330550, 3.342307, 3.347892, 3.376754, 3.407354
 };
 
 
@@ -1354,20 +1311,20 @@ static const int FULLFIELD_100_COUNT = 33;
 
 static const float FULLFIELD_100_INPUT_NITS[FULLFIELD_100_COUNT] =
 {
-    0.000000, 0.014036, 0.059603, 0.157591, 0.322069, 0.595511, 0.992458, 1.592344,
-    2.444660, 3.575635, 5.171928, 7.225205, 10.050671, 13.609937, 18.423039, 24.669117,
-    32.378420, 42.624646, 55.159547, 71.694443, 92.698470, 118.169439, 151.523348, 191.827692,
-    244.458256, 307.922168, 390.672851, 494.833309, 620.319592, 783.927695, 981.175502, 1238.660348,
-    1350.000000
+    0.000000, 0.011931, 0.054452, 0.138304, 0.282443, 0.521309, 0.865680, 1.384067,
+    2.082348, 3.035066, 4.374848, 6.086059, 8.324707, 11.363916, 15.134164, 19.949442,
+    26.352272, 34.156536, 43.978027, 56.870362, 72.413132, 92.698470, 117.036078, 147.265282,
+    186.502536, 233.369755, 291.383762, 368.488542, 460.037005, 571.771366, 720.083776, 901.023134,
+    1040.932000
 };
 
 static const float FULLFIELD_100_MEASURED_NITS[FULLFIELD_100_COUNT] =
 {
-    0.000000, 0.014648, 0.088214, 0.193289, 0.318997, 0.661295, 0.989292, 1.447618,
-    2.236296, 3.376542, 4.920436, 6.930280, 9.705878, 13.055362, 17.754820, 23.893304,
-    31.387134, 40.600344, 45.011469, 47.620761, 50.368808, 52.891721, 56.604813, 68.190830,
-    82.588125, 98.494626, 118.746210, 143.304828, 172.126608, 209.385482, 251.637523, 297.368081,
-    309.321642
+    0.000000, 0.000000, 0.025553, 0.118012, 0.288831, 0.591004, 0.975432, 1.522651,
+    2.381936, 3.378590, 5.068168, 6.945428, 9.627818, 12.967435, 16.961642, 20.195403,
+    23.503979, 30.959431, 35.582524, 38.937325, 42.492201, 45.812047, 49.682839, 59.134684,
+    70.803150, 84.266779, 100.396451, 118.819227, 141.396332, 169.118513, 202.873554, 239.232825,
+    265.021011
 };
 
 
@@ -1375,44 +1332,44 @@ static const int FULLFIELD_50_COUNT = 33;
 
 static const float FULLFIELD_50_MEASURED_NITS[FULLFIELD_50_COUNT] =
 {
-    0.000000, 0.015862, 0.091231, 0.191387, 0.312262, 0.671993, 1.005095, 1.466901,
-    2.286369, 3.449248, 5.001989, 7.038000, 9.801644, 13.156916, 17.924338, 24.163637,
-    31.789419, 41.683506, 53.627316, 69.185620, 84.080554, 92.334532, 96.520524, 101.008793,
-    104.432241, 114.183568, 137.227399, 166.211743, 199.071008, 240.682466, 287.937407, 345.551770,
-    363.939963
+    0.000000, 0.000000, 0.019611, 0.097831, 0.249949, 0.526106, 0.889249, 1.411673,
+    2.227720, 3.168462, 4.802616, 6.558748, 9.185429, 12.424980, 16.227606, 19.369587,
+    23.859118, 31.436385, 40.137642, 53.197343, 65.392805, 74.547320, 80.127169, 85.519747,
+    92.611297, 100.748551, 119.449653, 140.743873, 168.553173, 197.406956, 239.022413, 280.116401,
+    310.507285
 };
 
 static const int FULLFIELD_25_COUNT = 33;
 
 static const float FULLFIELD_25_MEASURED_NITS[FULLFIELD_25_COUNT] =
 {
-    0.000000, 0.017065, 0.092684, 0.188695, 0.316532, 0.675762, 1.014760, 1.479035,
-    2.288388, 3.459781, 4.990658, 7.024088, 9.770902, 13.179701, 17.913331, 24.091540,
-    31.696396, 41.565991, 53.429244, 68.944165, 88.666517, 112.012512, 143.437406, 170.146931,
-    184.837337, 192.847953, 201.161006, 207.413333, 229.887560, 275.787536, 329.782519, 395.968809,
-    415.892980
+    0.000000, 0.000000, 0.020193, 0.098958, 0.253351, 0.530072, 0.894046, 1.417652,
+    2.236172, 3.175224, 4.814092, 6.578921, 9.210201, 12.453936, 16.233701, 19.360823,
+    24.324769, 31.664910, 40.662945, 53.441695, 68.002699, 88.193059, 111.606274, 135.299708,
+    149.261837, 161.082050, 170.971315, 185.138530, 201.136027, 235.942743, 283.942968, 331.624744,
+    366.448525
 };
 
 static const int FULLFIELD_15_COUNT = 33;
 
 static const float FULLFIELD_15_MEASURED_NITS[FULLFIELD_15_COUNT] =
 {
-    0.000000, 0.016253, 0.094834, 0.187706, 0.317148, 0.676951, 1.015021, 1.479980,
-    2.287189, 3.448004, 4.994607, 7.041970, 9.784785, 13.150748, 17.905736, 24.049399,
-    31.633274, 41.473215, 53.281468, 69.049461, 88.784032, 112.346140, 143.356248, 182.754138,
-    234.099656, 278.571999, 300.521740, 315.031157, 328.402913, 344.764374, 366.215873, 440.577317,
-    462.133337
+    0.000000, 0.000000, 0.024520, 0.114708, 0.280640, 0.581359, 0.958295, 1.494907,
+    2.323773, 3.286472, 4.984005, 6.824739, 9.518044, 12.823650, 16.687334, 19.874191,
+    24.870417, 32.192746, 41.126911, 53.811406, 68.639696, 88.228024, 111.933290, 142.016629,
+    178.322722, 218.856152, 244.621474, 264.975028, 281.601565, 304.076471, 324.154317, 379.958739,
+    415.885700
 };
 
 static const int FULLFIELD_10_COUNT = 33;
 
 static const float FULLFIELD_10_MEASURED_NITS[FULLFIELD_10_COUNT] =
 {
-    0.000000, 0.015782, 0.096480, 0.189964, 0.315951, 0.677001, 1.013099, 1.478316,
-    2.295147, 3.465727, 5.010710, 7.056289, 9.789478, 13.159489, 17.861715, 24.058224,
-    31.705232, 41.587231, 53.534239, 69.184716, 88.953048, 112.100670, 143.263472, 182.691020,
-    234.475162, 294.818124, 372.854232, 426.292189, 459.043502, 483.394124, 503.668346, 517.617448,
-    513.378666
+    0.000000, 0.000000, 0.023311, 0.111391, 0.276822, 0.572010, 0.949903, 1.489990,
+    2.313793, 3.300262, 4.981862, 6.854603, 9.544428, 12.853254, 16.722919, 20.305498,
+    26.128305, 33.665465, 42.636117, 55.207774, 69.932789, 89.672005, 112.739759, 141.994701,
+    180.269676, 227.876442, 287.603899, 341.189386, 373.286063, 402.007822, 430.822267, 464.211151,
+    474.045533
 };
 
 
@@ -1559,6 +1516,12 @@ float SampleRealMeasuredOutputNitsForAPL(float aplPct, float targetNits)
     return targetNits / comp;
 }
 
+float SampleApproxMeasuredOutputNitsForAPL(float aplPct, float targetNits)
+{
+    float comp = max(LookupMeasuredComp1D(aplPct), 1e-6);
+    return targetNits / comp;
+}
+
 float ComputeGraphBoostedTargetNits(float aplPct, float inputNits, float anchorBoostedNits)
 {
     float currentAPL = saturate(aplPct / 100.0);
@@ -1630,6 +1593,13 @@ float GraphAxisCoordinateWithPQMax(float nits, float axisMaxNits, float axisMaxP
     return safeNits / safeAxisMaxNits;
 }
 
+float GraphAxisCoordinate(float nits, float axisMaxNits)
+{
+    float safeAxisMaxNits = max(axisMaxNits, 1.0);
+    float axisMaxPQ = GraphUsePQSpace ? max(NitsToPQ(safeAxisMaxNits), 1e-6) : 0.0;
+    return GraphAxisCoordinateWithPQMax(nits, safeAxisMaxNits, axisMaxPQ);
+}
+
 float GraphTickValueFromFractionWithPQMax(float frac, float axisMaxNits, float axisMaxPQ)
 {
     float safeAxisMaxNits = max(axisMaxNits, 1e-6);
@@ -1642,6 +1612,13 @@ float GraphTickValueFromFractionWithPQMax(float frac, float axisMaxNits, float a
     return max(PQToLinearScalar(tickPQ) * 10000.0, 0.0);
 }
 
+float GraphTickValueFromFraction(float frac, float axisMaxNits)
+{
+    float safeAxisMaxNits = max(axisMaxNits, 1e-6);
+    float axisMaxPQ = GraphUsePQSpace ? max(NitsToPQ(safeAxisMaxNits), 1e-6) : 0.0;
+    return GraphTickValueFromFractionWithPQMax(frac, safeAxisMaxNits, axisMaxPQ);
+}
+
 float GraphSampleNitsFromFraction(float frac, float axisMaxNits, float axisMaxPQ)
 {
     return GraphTickValueFromFractionWithPQMax(frac, axisMaxNits, axisMaxPQ);
@@ -1652,6 +1629,13 @@ float2 ToGraphPointWithPQMax(float2 graphPos, float2 graphSize, float axisMaxNit
     float nx = saturate(GraphAxisCoordinateWithPQMax(xNits, axisMaxNits, axisMaxPQ));
     float ny = GraphAxisCoordinateWithPQMax(yNits, axisMaxNits, axisMaxPQ);
     return graphPos + float2(nx * graphSize.x, (1.0 - ny) * graphSize.y);
+}
+
+float2 ToGraphPoint(float2 graphPos, float2 graphSize, float axisMaxNits, float xNits, float yNits)
+{
+    float safeAxisMaxNits = max(axisMaxNits, 1.0);
+    float axisMaxPQ = GraphUsePQSpace ? max(NitsToPQ(safeAxisMaxNits), 1e-6) : 0.0;
+    return ToGraphPointWithPQMax(graphPos, graphSize, safeAxisMaxNits, axisMaxPQ, xNits, yNits);
 }
 
 float DistanceToSegment(float2 p, float2 a, float2 b, out float h)
@@ -2074,19 +2058,13 @@ float4 PS_SmoothAPL(float4 vpos : SV_Position, float2 texcoord : TexCoord) : SV_
 
     // Precompute scene-uniform sceneLogGain here (1x1 pass) so PS_MainPass reads it from the
     // texture instead of recomputing the LUT lookup + log2 + pow chain for every pixel.
-    // .b is now the smoothed High APL % metric, so sceneLogGain moves to .a.
-    // The following Boost_Params pass derives the rolloff anchor and BT.2390 shoulder constants from it.
+    // .b is now the smoothed High APL % metric, so sceneLogGain moves to .a and the live pass
+    // recomputes the rolloff anchor from that value.
     float sceneLogGain = ComputeSceneLogGainFromAPL(smoothedAPL, smoothedHighAPLMetric);
 
     // r = smoothed closed-loop display-side APL metric, g = smoothed max sampled decoded scene nits,
     // b = smoothed High APL % metric, a = precomputed scene log-gain (uniform across all pixels)
     return float4(smoothedAPL, smoothedMaxSampledNits, smoothedHighAPLMetric, sceneLogGain);
-}
-
-float4 PS_CalcBoostParams(float4 vpos : SV_Position, float2 texcoord : TexCoord) : SV_Target
-{
-    float4 aplData = tex2Dlod(SamplerAPL, float4(0.5, 0.5, 0.0, 0.0));
-    return ComputeBoostRolloffParamsFromSceneLogGain(aplData.a);
 }
 
 float DrawOSDDigitAt(float2 texcoord, float2 topRight, float scale, float aspect, int digit)
@@ -2293,8 +2271,8 @@ float4 PS_MainPass(float4 vpos : SV_Position, float2 texcoord : TexCoord) : SV_T
     if (sceneLogGain <= 0.0 && (ShowOSD == false))
         return float4(color, 1.0);
 
-    float4 boostParams = tex2Dlod(SamplerBoostParams, float4(0.5, 0.5, 0.0, 0.0));
-    float3 finalColor = ApplyBoostPreserveColorFromPrecomputedParams(color, sceneLogGain, boostParams);
+    float rollOffAnchorBoostedNits = ComputeRollOffAnchorBoostedNitsFromSceneLogGain(sceneLogGain);
+    float3 finalColor = ApplyBoostPreserveColorFromSceneLogGain(color, sceneLogGain, rollOffAnchorBoostedNits);
 
     if (ShowOSD)
     {
@@ -2320,12 +2298,11 @@ float4 PS_CalcGraphParams(float4 vpos : SV_Position, float2 texcoord : TexCoord)
     float graphRawAPLPercent = clamp(GraphAPLIndex, 0.0, 100.0);
     float graphClosedLoopAPL = ComputeGraphClosedLoopAPLFromRawPercent(graphRawAPLPercent);
     float graphClosedLoopAPLPercent = graphClosedLoopAPL * 100.0;
+    float graphRollOffStartNits = SolveDynamicRollOffStartNits(graphClosedLoopAPL);
     float maxMeasuredNits = GetAPLMaxMeasuredNits(graphClosedLoopAPLPercent);
     float graphAnchorBoostedNits = ComputeRollOffAnchorBoostedNits(graphClosedLoopAPL);
 
-    // r = solved closed-loop APL %, g = max measured nits, b = axis max PQ, a = rolloff anchor.
-    // The old r value was graphRollOffStartNits but PS_CalcGraphCurves never used it.
-    return float4(graphClosedLoopAPLPercent, maxMeasuredNits, graphAxisMaxPQ, graphAnchorBoostedNits);
+    return float4(graphRollOffStartNits, maxMeasuredNits, graphAxisMaxPQ, graphAnchorBoostedNits);
 }
 
 // GRAPH PASS 1b: Precompute grid/tick/ref line screen-space endpoints (32 pixels — free).
@@ -2419,7 +2396,9 @@ float4 PS_CalcGraphCurves(float4 vpos : SV_Position, float2 texcoord : TexCoord)
     float4 graphParams               = tex2Dlod(SamplerGraphParams, float4(0.5, 0.5, 0.0, 0.0));
     float  graphAxisMaxPQ            = GraphUsePQSpace ? max(graphParams.b, 1e-6) : 0.0;
     float  graphRawAPLPercent        = clamp(GraphAPLIndex, 0.0, 100.0);
-    float  graphClosedLoopAPLPercent = graphParams.r;
+    float  graphClosedLoopAPL        = ComputeGraphClosedLoopAPLFromRawPercent(graphRawAPLPercent);
+    float  graphClosedLoopAPLPercent = graphClosedLoopAPL * 100.0;
+    float  graphRollOffStartNits     = graphParams.r;
     float  graphAnchorBoostedNits    = graphParams.a;
 
     bool useFF = GraphUseFullFieldWindowProjection;
@@ -2535,13 +2514,6 @@ technique EOTF_Boost_1D_APL_LUT
         VertexShader = PostProcessVS;
         PixelShader = PS_SmoothAPL;
         RenderTarget = TexAPL;
-    }
-
-    pass Boost_Params
-    {
-        VertexShader = PostProcessVS;
-        PixelShader = PS_CalcBoostParams;
-        RenderTarget = TexBoostParams;
     }
 
     pass Main_Boost
