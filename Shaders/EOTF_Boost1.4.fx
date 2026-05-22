@@ -1,6 +1,7 @@
 /*
-    EOTF Boost v8.7 - 1D APL Lookup + Optional High APL Adaptive Boost
-    Calibrated for monitor SAMSUNG OLED G8 G85SB
+    EOTF Boost v8.7.1.1 - 1D APL Lookup + Optional High APL Adaptive Boost
+    Calibrated for monitor SAMSUNG OLED G8 G85SB (identical to other 3rd gen QD-OLEDS)
+    Added color preserving boost limit slider
     ================================================================
 
     Purpose
@@ -280,6 +281,13 @@ uniform float SaturationComp <
     ui_min = 0.5; ui_max = 1.5; ui_step = 0.01;
     ui_label = "Saturation Compensation";
     UI_TOOLTIP("Adjusts color saturation after the color-preserving luminance boost. 1.0 = neutral. Lower values reduce saturation. Higher values increase saturation while preserving the boosted pixel luminance.")
+> = 1.0;
+
+uniform float EnableColorPreservingBoostMode <
+    ui_type = "slider";
+    ui_min = 0.75; ui_max = 1.0; ui_step = 0.01;
+    ui_label = "Preserve Color by Reducing Boost";
+    UI_TOOLTIP("When enabled, saturated colors keep their RGB ratio by reducing only the added boost before channels would exceed the Boost Roll-Off Target. Variable. Original behavior is unchanged when at 1.0.")
 > = 1.0;
 
 uniform float SIGNAL_REFERENCE_NITS <
