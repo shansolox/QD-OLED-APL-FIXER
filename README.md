@@ -1,6 +1,6 @@
-This is a modified fork of **mspeedo** shader for G8 G85SB (should work for other 3rd gen QDs in Peak1000) to include color preserving boost slider. EOTF_BoostMod1.4.
+This is a modified fork of **mspeedo** shader for G8 G85SB (should work for other 3rd gen TB400 QDs in Peak1000) to include color preserving boost slider. EOTF_BoostMod1.5.
 
-Second version made for Aorus FO32U/2/2P QD-OLED based on approximated and aggregated values from TFT review. Ramped down from high values. Based on F03/4 firmware, newer firmware may not behave identically. This should be somewhat accurate if your Windows Calibration Tool clips at 1080 nits. EOTF_BoostModF032.
+Second version made for Aorus FO32U/2/2P QD-OLED based on approximated and aggregated values from TFT review. Ramped down from high values. Based on F03/4 firmware, newer firmware may not behave identically. This should be somewhat accurate if your Windows Calibration Tool clips at 1080 nits. EOTF_BoostMod1.5_FO32.
 
 # EOTF Boost for QD-OLED
 
