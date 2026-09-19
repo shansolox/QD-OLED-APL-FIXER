@@ -2,6 +2,8 @@ This is a modified fork of **mspeedo** shader for G8 G85SB (should work for othe
 
 Second version made for Aorus FO32U/2/2P QD-OLED based on approximated and aggregated values from TFT review. Ramped down from high values. Based on F03/4 firmware, newer firmware may not behave identically. This should be somewhat accurate if your Windows Calibration Tool clips at 1080 nits. EOTF_BoostMod1.5_FO32.
 
+19/07/26 - 3.0 Update to rolling full frame method by mspeedo, values adjusted for TB400/Peak1000 OLEDs. Minor fixes and changes. Merged FO32 and regular into a single shader, further updates will be based on this.
+
 # EOTF Boost for QD-OLED
 
 This shader is based on the original [QD-OLED-APL-FIXER](https://github.com/DespairArdor/QD-OLED-APL-FIXER) project by **DespairArdor**.
